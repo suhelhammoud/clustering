@@ -235,7 +235,7 @@ public class BaadelKMean extends RandomizableClusterer implements
      */
     @Override
     public void buildClusterer(Instances data) throws Exception {
-
+        //todo increamental
         // can clusterer handle the data?
         getCapabilities().testWithFail(data);
 
