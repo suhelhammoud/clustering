@@ -285,10 +285,6 @@ public class BaadelKMean extends RandomizableClusterer implements
 
         m_DistanceFunction.setInstances(instances);
 
-        Random RandomO = new Random(getSeed());
-        int instIndex;
-        HashMap initC = new HashMap();
-        DecisionTableHashKey hk = null;
 
         Instances initInstances = null;
         if (m_PreserveOrder) {
@@ -298,6 +294,10 @@ public class BaadelKMean extends RandomizableClusterer implements
         }
 
         //Randomly pick m_NumClusters points from the instances, make sure to choose each centroid only once
+        Random RandomO = new Random(getSeed());
+        int instIndex;
+        HashMap initC = new HashMap();
+        DecisionTableHashKey hk = null;
         for (int j = initInstances.numInstances() - 1; j >= 0; j--) {
             instIndex = RandomO.nextInt(j + 1);
             hk = new DecisionTableHashKey(initInstances.instance(instIndex),
@@ -312,7 +312,7 @@ public class BaadelKMean extends RandomizableClusterer implements
                 break;
             }
         }
-
+        //in case of default m_NumCluseters is not possible
         m_NumClusters = m_ClusterCentroids.numInstances();
 
         // removing reference
@@ -331,11 +331,13 @@ public class BaadelKMean extends RandomizableClusterer implements
             converged = true;
             for (i = 0; i < instances.numInstances(); i++) {
                 Instance toCluster = instances.instance(i);
-                int newC = clusterProcessedInstance(toCluster, true);
-                if (newC != clusterAssignments[i]) { //Any change from cluster to another means no convergence yet
+                Pair<Integer, Double> newCErr = clusterProcessedInstance(toCluster,
+                        m_NumClusters, m_ClusterCentroids, m_DistanceFunction);
+
+                if (newCErr.p1 != clusterAssignments[i]) { //Any change from cluster to another means no convergence yet
                     converged = false;
                 }
-                clusterAssignments[i] = newC;
+                clusterAssignments[i] = newCErr.p1;
             }
 
             // update centroids
@@ -488,10 +490,13 @@ public class BaadelKMean extends RandomizableClusterer implements
      * clusters an instance that has been through the filters
      *
      * @param instance the instance to assign a cluster to
-     * @param updateErrors if true, update the within clusters sum of errors
+//     * @param updateErrors if true, update the within clusters sum of errors
      * @return a cluster number
      */
-    private int clusterProcessedInstance(Instance instance, boolean updateErrors) {
+    private static Pair<Integer, Double> clusterProcessedInstance(Instance instance,
+                                               int m_NumClusters,
+                                               Instances m_ClusterCentroids,
+                                               DistanceFunction m_DistanceFunction ) {
         double minDist = Integer.MAX_VALUE;
         int bestCluster = 0;
         for (int i = 0; i < m_NumClusters; i++) {
@@ -502,14 +507,14 @@ public class BaadelKMean extends RandomizableClusterer implements
                 bestCluster = i;
             }
         }
-        if (updateErrors) {
-            if (m_DistanceFunction instanceof EuclideanDistance) {
-                // Euclidean distance to Squared Euclidean distance
-                minDist *= minDist;
-            }
-            m_squaredErrors[bestCluster] += minDist;
-        }
-        return bestCluster;
+//        if (updateErrors) {
+//            if (m_DistanceFunction instanceof EuclideanDistance) {
+//                // Euclidean distance to Squared Euclidean distance
+//                minDist *= minDist;
+//            }
+//            m_squaredErrors[bestCluster] += minDist;
+//        }
+        return new Pair(Integer.valueOf(bestCluster), minDist);
     }
 
     /**
@@ -531,7 +536,11 @@ public class BaadelKMean extends RandomizableClusterer implements
             inst = instance;
         }
 
-        return clusterProcessedInstance(inst, false);
+        Pair<Integer, Double> result = clusterProcessedInstance(inst,
+                m_NumClusters, m_ClusterCentroids,
+                m_DistanceFunction);
+
+        return result.p1;
     }
 
     /**
