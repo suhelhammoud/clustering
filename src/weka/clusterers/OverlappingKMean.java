@@ -27,21 +27,12 @@ import java.util.Random;
 import java.util.Vector;
 
 import weka.classifiers.rules.DecisionTableHashKey;
-import weka.core.Attribute;
-import weka.core.Capabilities;
+import weka.core.*;
 import weka.core.Capabilities.Capability;
-import weka.core.DistanceFunction;
-import weka.core.EuclideanDistance;
-import weka.core.Instance;
-import weka.core.Instances;
-import weka.core.ManhattanDistance;
-import weka.core.Option;
-import weka.core.RevisionUtils;
-import weka.core.Utils;
-import weka.core.WeightedInstancesHandler;
 import weka.filters.Filter;
 import weka.filters.unsupervised.attribute.ReplaceMissingValues;
 
+//TODO change the whole implementation to use the new algorithm
 /**
  * <!-- globalinfo-start --> Cluster data using the k means algorithm
  * <p/>
@@ -91,17 +82,15 @@ import weka.filters.unsupervised.attribute.ReplaceMissingValues;
  *
  * <!-- options-end -->
  *
- * @author Said Baadel
- * @author Fadi Thabtah
  * @author Suhel Hammoud
- * @version $Revision: 10537 $
  * @see RandomizableClusterer
  */
-public class BaadelKMean extends RandomizableClusterer implements
+public class OverlappingKMean extends RandomizableClusterer implements
         NumberOfClustersRequestable, WeightedInstancesHandler {
 
     /** for serialization */
     static final long serialVersionUID = -3235809600124455376L;
+
 
     /**
      * replace missing values in training instances
@@ -187,7 +176,7 @@ public class BaadelKMean extends RandomizableClusterer implements
     /**
      * the default constructor
      */
-    public BaadelKMean() {
+    public OverlappingKMean() {
         super();
 
         m_SeedDefault = 10;
@@ -256,7 +245,7 @@ public class BaadelKMean extends RandomizableClusterer implements
         }
         m_FullNominalCounts = new int[instances.numAttributes()][0];
 
-        m_FullMeansOrMediansOrModes = moveCentroid(0, instances, false);
+        m_FullMeansOrMediansOrModes = moveCentroid( instances  );
         for (int i = 0; i < instances.numAttributes(); i++) {
             m_FullMissingCounts[i] = instances.attributeStats(i).missingCount;
             if (instances.attribute(i).isNumeric()) {
@@ -321,23 +310,28 @@ public class BaadelKMean extends RandomizableClusterer implements
         int i;
         boolean converged = false;
         int emptyClusterCount;
-        Instances[] tempI = new Instances[m_NumClusters];
         m_squaredErrors = new double[m_NumClusters];
         m_ClusterNominalCounts = new int[m_NumClusters][instances.numAttributes()][0];
         m_ClusterMissingCounts = new int[m_NumClusters][instances.numAttributes()];
+
+        Instances[] tempI = new Instances[m_NumClusters];
+
         while (!converged) {
             emptyClusterCount = 0;
             m_Iterations++;
             converged = true;
             for (i = 0; i < instances.numInstances(); i++) {
                 Instance toCluster = instances.instance(i);
-                Pair<Integer, Double> newCErr = clusterProcessedInstance(toCluster,
+                SPair<Integer, Double> centroidDist = clusterProcessedInstance(toCluster,
                         m_NumClusters, m_ClusterCentroids, m_DistanceFunction);
 
-                if (newCErr.p1 != clusterAssignments[i]) { //Any change from cluster to another means no convergence yet
+                //update the squared error
+                m_squaredErrors[centroidDist.k] += centroidDist.v * centroidDist.v;
+
+                if (centroidDist.k != clusterAssignments[i]) { //Any change from cluster to another means no convergence yet
                     converged = false;
                 }
-                clusterAssignments[i] = newCErr.p1;
+                clusterAssignments[i] = centroidDist.k;
             }
 
             // update centroids
@@ -353,7 +347,9 @@ public class BaadelKMean extends RandomizableClusterer implements
                     // empty cluster
                     emptyClusterCount++;
                 } else {
-                    moveCentroid(i, tempI[i], true);
+                    double[] evals = moveCentroid(tempI[i]);
+                    updateClusterInfoD(evals, i, tempI[i]);
+//                    moveCentroid(i, tempI[i], true);
                 }
             }
 
@@ -412,64 +408,41 @@ public class BaadelKMean extends RandomizableClusterer implements
         m_DistanceFunction.clean();
     }
 
-    /**
-     * Move the centroid to it's new coordinates. Generate the centroid
-     * coordinates based on it's members (objects assigned to the cluster of the
-     * centroid) and the distance function being used.
-     *
-     * @param centroidIndex index of the centroid which the coordinates will be
-     *          computed
-     * @param members the objects that are assigned to the cluster of this
-     *          centroid
-     * @param updateClusterInfo if the method is supposed to update the m_Cluster
-     *          arrays
-     * @return the centroid coordinates
-     */
-    protected double[] moveCentroid(int centroidIndex, Instances members,
-                                    boolean updateClusterInfo) {
+
+
+    protected static double[] moveCentroid(Instances members) {
         double[] vals = new double[members.numAttributes()];
 
-        // used only for Manhattan Distance
-        Instances sortedMembers = null;
-        int middle = 0;
-        boolean dataIsEven = false;
+        for (int attributeIndex = 0; attributeIndex < members.numAttributes(); attributeIndex++) {
 
-        if (m_DistanceFunction instanceof ManhattanDistance) {
-            middle = (members.numInstances() - 1) / 2;
-            dataIsEven = ((members.numInstances() % 2) == 0);
-            if (m_PreserveOrder) {
-                sortedMembers = members;
-            } else {
-                sortedMembers = new Instances(members);
-            }
+            // in case of Euclidian distance the centroid is the mean point
+            // in both cases, if the attribute is nominal, the centroid is the mode
+            vals[attributeIndex] = members.meanOrMode(attributeIndex);
+
         }
+
+        return vals;
+    }
+
+    protected Instance updateClusterInfoD(double[] vals,
+        int centroidIndex, Instances members) {
+//        double[] vals = new double[members.numAttributes()];
+
 
         for (int j = 0; j < members.numAttributes(); j++) {
 
+            Attribute attribute = members.attribute(j);
+            AttributeStats attributeStats = members.attributeStats(j);
             // in case of Euclidian distance the centroid is the mean point
-            // in case of Manhattan distance the centroid is the median point
             // in both cases, if the attribute is nominal, the centroid is the mode
-            if (m_DistanceFunction instanceof EuclideanDistance
-                    || members.attribute(j).isNominal()) {
-                vals[j] = members.meanOrMode(j);
-            } else if (m_DistanceFunction instanceof ManhattanDistance) {
-                // singleton special case
-                if (members.numInstances() == 1) {
-                    vals[j] = members.instance(0).value(j);
-                } else {
-                    vals[j] = sortedMembers.kthSmallestValue(j, middle + 1);
-                    if (dataIsEven) {
-                        vals[j] = (vals[j] + sortedMembers.kthSmallestValue(j, middle + 2)) / 2;
-                    }
-                }
-            }
 
-            if (updateClusterInfo) {
-                m_ClusterMissingCounts[centroidIndex][j] = members.attributeStats(j).missingCount;
-                m_ClusterNominalCounts[centroidIndex][j] = members.attributeStats(j).nominalCounts;
-                if (members.attribute(j).isNominal()) {
-                    if (m_ClusterMissingCounts[centroidIndex][j] > m_ClusterNominalCounts[centroidIndex][j][Utils
-                            .maxIndex(m_ClusterNominalCounts[centroidIndex][j])]) {
+                m_ClusterMissingCounts[centroidIndex][j] = attributeStats.missingCount;
+                m_ClusterNominalCounts[centroidIndex][j] = attributeStats.nominalCounts;
+
+                if (attribute.isNominal()) {
+                    int maxNominalIndex = Utils.maxIndex(m_ClusterNominalCounts[centroidIndex][j]);
+                    if (m_ClusterMissingCounts[centroidIndex][j] >
+                            m_ClusterNominalCounts[centroidIndex][j][maxNominalIndex]) {
                         vals[j] = Instance.missingValue(); // mark mode as missing
                     }
                 } else {
@@ -478,12 +451,13 @@ public class BaadelKMean extends RandomizableClusterer implements
                         vals[j] = Instance.missingValue(); // mark mean as missing
                     }
                 }
-            }
+
         }
-        if (updateClusterInfo) {
-            m_ClusterCentroids.add(new Instance(1.0, vals));
-        }
-        return vals;
+        Instance result = new Instance(1.0, vals);
+        return result;
+
+//        m_ClusterCentroids.add(new Instance(1.0, vals));
+//        return vals;
     }
 
     /**
@@ -493,10 +467,10 @@ public class BaadelKMean extends RandomizableClusterer implements
 //     * @param updateErrors if true, update the within clusters sum of errors
      * @return a cluster number
      */
-    private static Pair<Integer, Double> clusterProcessedInstance(Instance instance,
-                                               int m_NumClusters,
-                                               Instances m_ClusterCentroids,
-                                               DistanceFunction m_DistanceFunction ) {
+    private static SPair<Integer, Double> clusterProcessedInstance(Instance instance,
+                                                                   int m_NumClusters,
+                                                                   Instances m_ClusterCentroids,
+                                                                   DistanceFunction m_DistanceFunction ) {
         double minDist = Integer.MAX_VALUE;
         int bestCluster = 0;
         for (int i = 0; i < m_NumClusters; i++) {
@@ -514,7 +488,7 @@ public class BaadelKMean extends RandomizableClusterer implements
 //            }
 //            m_squaredErrors[bestCluster] += minDist;
 //        }
-        return new Pair(Integer.valueOf(bestCluster), minDist);
+        return new SPair(Integer.valueOf(bestCluster), minDist);
     }
 
     /**
@@ -536,11 +510,11 @@ public class BaadelKMean extends RandomizableClusterer implements
             inst = instance;
         }
 
-        Pair<Integer, Double> result = clusterProcessedInstance(inst,
+        SPair<Integer, Double> result = clusterProcessedInstance(inst,
                 m_NumClusters, m_ClusterCentroids,
                 m_DistanceFunction);
 
-        return result.p1;
+        return result.k;
     }
 
     /**
@@ -739,10 +713,9 @@ public class BaadelKMean extends RandomizableClusterer implements
      * @throws Exception if instances cannot be processed
      */
     public void setDistanceFunction(DistanceFunction df) throws Exception {
-        if (!(df instanceof EuclideanDistance)
-                && !(df instanceof ManhattanDistance)) {
+        if (!(df instanceof EuclideanDistance)) {
             throw new Exception(
-                    "SimpleKMeans currently only supports the Euclidean and Manhattan distances.");
+                    "SimpleKMeans currently only supports the Euclidean and Manhattan v.");
         }
         m_DistanceFunction = df;
     }
@@ -1020,7 +993,7 @@ public class BaadelKMean extends RandomizableClusterer implements
             temp.append("Within cluster sum of squared errors: "
                     + Utils.sum(m_squaredErrors));
         } else {
-            temp.append("Sum of within cluster distances: "
+            temp.append("Sum of within cluster v: "
                     + Utils.sum(m_squaredErrors));
         }
 
