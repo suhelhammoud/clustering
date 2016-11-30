@@ -21,6 +21,19 @@ import static org.junit.Assert.*;
  */
 public class BClusterTest {
 
+    @Test
+    public void isSameTest() throws Exception {
+//        List<double[]> lst1 = Arrays.asList(new double[]{1, 2, 4});
+//        List<double[]> lst2 = Arrays.asList(new double[]{1, 2, 4});
+//        assertEquals(true,BCluster.isSame(lst1, lst2));
+
+        List<Integer> li1 = Arrays.asList(1, 2, 4);
+        List<Integer> li2 = Arrays.asList(1, 2, 4);
+//        List<Integer> li3 = li1;
+
+        assertEquals(true, BCluster.isSame(li1,li2));
+    }
+
     public static List<double[]> getPointsDouble() {
         try {
 

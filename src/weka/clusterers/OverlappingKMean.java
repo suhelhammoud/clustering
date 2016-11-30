@@ -21,76 +21,81 @@
  */
 package weka.clusterers;
 
-import java.util.Enumeration;
-import java.util.HashMap;
-import java.util.Random;
-import java.util.Vector;
-
 import weka.classifiers.rules.DecisionTableHashKey;
+import weka.clusterers.BaadelDataStructures.PointCluster;
 import weka.core.*;
 import weka.core.Capabilities.Capability;
 import weka.filters.Filter;
 import weka.filters.unsupervised.attribute.ReplaceMissingValues;
 
-//TODO change the whole implementation to use the new algorithm
+import java.util.*;
+import java.util.function.BiFunction;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
+
+import static java.util.stream.Collectors.*;
+
 /**
  * <!-- globalinfo-start --> Cluster data using the k means algorithm
  * <p/>
  * <!-- globalinfo-end -->
- *
+ * <p>
  * <!-- options-start --> Valid options are:
  * <p/>
- *
+ * <p>
  * <pre>
  * -N &lt;num&gt;
  *  number of clusters.
  *  (default 2).
  * </pre>
- *
+ * <p>
  * <pre>
  * -V
  *  Display std. deviations for centroids.
  * </pre>
- *
+ * <p>
  * <pre>
  * -M
  *  Replace missing values with mean/mode.
  * </pre>
- *
+ * <p>
  * <pre>
  * -S &lt;num&gt;
  *  Random number seed.
  *  (default 10)
  * </pre>
- *
+ * <p>
  * <pre>
  * -A &lt;classname and options&gt;
  *  Distance function to be used for instance comparison
  *  (default weka.core.EuclidianDistance)
  * </pre>
- *
+ * <p>
  * <pre>
  * -I &lt;num&gt;
  *  Maximum number of iterations.
  * </pre>
- *
+ * <p>
  * <pre>
  * -O
  *  Preserve order of instances.
  * </pre>
- *
- *
+ * <p>
+ * <p>
  * <!-- options-end -->
  *
- * @author Suhel Hammoud
+ * @author Mark Hall (mhall@cs.waikato.ac.nz)
+ * @author Eibe Frank (eibe@cs.waikato.ac.nz)
+ * @version $Revision: 10537 $
  * @see RandomizableClusterer
  */
 public class OverlappingKMean extends RandomizableClusterer implements
-        NumberOfClustersRequestable, WeightedInstancesHandler {
+        NumberOfClustersRequestable, WeightedInstancesHandler, UtilCluster {
 
-    /** for serialization */
+    /**
+     * for serialization
+     */
     static final long serialVersionUID = -3235809600124455376L;
-
 
     /**
      * replace missing values in training instances
@@ -160,7 +165,9 @@ public class OverlappingKMean extends RandomizableClusterer implements
      */
     private double[] m_squaredErrors;
 
-    /** the distance function used. */
+    /**
+     * the distance function used.
+     */
     protected DistanceFunction m_DistanceFunction = new EuclideanDistance();
 
     /**
@@ -187,7 +194,7 @@ public class OverlappingKMean extends RandomizableClusterer implements
      * Returns a string describing this clusterer
      *
      * @return a description of the evaluator suitable for displaying in the
-     *         explorer/experimenter gui
+     * explorer/experimenter gui
      */
     public String globalInfo() {
         return "Cluster data using the k means algorithm. Can use either "
@@ -215,6 +222,10 @@ public class OverlappingKMean extends RandomizableClusterer implements
         return result;
     }
 
+    boolean isConverged() {
+        return false;
+    }
+
     /**
      * Generates a clusterer. Has to initialize all fields of the clusterer that
      * are not being set via options.
@@ -224,7 +235,88 @@ public class OverlappingKMean extends RandomizableClusterer implements
      */
     @Override
     public void buildClusterer(Instances data) throws Exception {
-        //todo increamental
+        //TODO can cluster handle the data
+        //TODO replace missing data, delete or replace with mean (numeric) or with most common (nominal)
+        //
+
+
+//        List<double[]> dPoints = UtilCluster.getPoints(data);
+        List<double[]> dPoints = UtilCluster.mapInstancesToPoints(data);
+
+
+        int dimension = dPoints.get(0).length;
+        PointCollector pointCollector = new PointCollector(dimension);
+
+        int numClusterCentoids = m_NumClusters;
+        List<double[]> dClusterCentroid = UtilCluster.sample(dPoints, numClusterCentoids);
+        numClusterCentoids = dClusterCentroid.size(); //update numClusterCentroids if needed
+        Map<Integer,Point> clusterCentroids = null;
+
+        //TODO change cluster Assignments representation
+        List<Integer> clusterAssignments = null; //numInstances
+
+        BiFunction<double[], double[], Double> distanceFun = Point::eDistanceSquared;
+
+        int iteration = 0;
+        boolean isConverged= false;
+        //TODO set distance function
+        while (! isConverged) {
+            iteration++;
+            //covererd is true
+            List<double[]> finalDClusterCentroid = dClusterCentroid;
+            List<PointCluster> dPointClusters = dPoints.stream()
+                    .map(dPoint -> PointCluster.of(dPoint,
+                            Point.distances(dPoint, finalDClusterCentroid, distanceFun)))
+                    .collect(Collectors.toList());
+
+            //inject Saaid's new modification here
+
+            //assigned clusters
+            List<Integer> newClusterAssignments = dPointClusters.stream()
+                    .map(e -> BCluster.whichClusterKMean(e.v))
+                    .collect(Collectors.toList());
+
+            //find (update) new centroids
+            clusterCentroids = dPointClusters.stream()
+                    .map(Point::of) // clusterIndex => Point
+                    .collect(groupingBy(Point::getClusterIndex, pointCollector));
+
+            dClusterCentroid = clusterCentroids.values().stream()
+                    .sorted(Comparator.comparingInt(Point::getClusterIndex))
+                    .map(e -> e.getV())
+                    .collect(Collectors.toList());
+
+
+            isConverged = iteration >= m_MaxIterations
+                        || BCluster.isSame(newClusterAssignments, clusterAssignments);
+
+            List<double[]> dClusterCentroidStripped = clusterCentroids.values().stream()
+                    .filter(e -> e.getWeight() > 0)
+                    .sorted()
+                    .map(e -> e.getV())
+                    .collect(toList());
+            System.out.println("num centroids = " + dClusterCentroidStripped.size());
+
+            //find empty clusters
+
+        }
+            //update square errors
+//        m_ClusterStdDevs;
+        if (m_displayStdDevs) {
+//            m_ClusterStdDevs = new Instances(instances, m_NumClusters);
+            List<Integer> clusterCounts = clusterCentroids.values().stream()
+                    .sorted()
+                    .map(e -> (int) e.getWeight())
+                    .collect(toList());
+
+        }
+
+    }
+
+
+
+    public void buildClusterer2(Instances data) throws Exception {
+
         // can clusterer handle the data?
         getCapabilities().testWithFail(data);
 
@@ -245,7 +337,7 @@ public class OverlappingKMean extends RandomizableClusterer implements
         }
         m_FullNominalCounts = new int[instances.numAttributes()][0];
 
-        m_FullMeansOrMediansOrModes = moveCentroid( instances  );
+        m_FullMeansOrMediansOrModes = moveCentroid(0, instances, false);
         for (int i = 0; i < instances.numAttributes(); i++) {
             m_FullMissingCounts[i] = instances.attributeStats(i).missingCount;
             if (instances.attribute(i).isNumeric()) {
@@ -274,6 +366,10 @@ public class OverlappingKMean extends RandomizableClusterer implements
 
         m_DistanceFunction.setInstances(instances);
 
+        Random RandomO = new Random(getSeed());
+        int instIndex;
+        HashMap initC = new HashMap();
+        DecisionTableHashKey hk = null;
 
         Instances initInstances = null;
         if (m_PreserveOrder) {
@@ -282,11 +378,6 @@ public class OverlappingKMean extends RandomizableClusterer implements
             initInstances = instances;
         }
 
-        //Randomly pick m_NumClusters points from the instances, make sure to choose each centroid only once
-        Random RandomO = new Random(getSeed());
-        int instIndex;
-        HashMap initC = new HashMap();
-        DecisionTableHashKey hk = null;
         for (int j = initInstances.numInstances() - 1; j >= 0; j--) {
             instIndex = RandomO.nextInt(j + 1);
             hk = new DecisionTableHashKey(initInstances.instance(instIndex),
@@ -301,7 +392,7 @@ public class OverlappingKMean extends RandomizableClusterer implements
                 break;
             }
         }
-        //in case of default m_NumCluseters is not possible
+
         m_NumClusters = m_ClusterCentroids.numInstances();
 
         // removing reference
@@ -310,28 +401,23 @@ public class OverlappingKMean extends RandomizableClusterer implements
         int i;
         boolean converged = false;
         int emptyClusterCount;
+
+
+        Instances[] tempI = new Instances[m_NumClusters];
         m_squaredErrors = new double[m_NumClusters];
         m_ClusterNominalCounts = new int[m_NumClusters][instances.numAttributes()][0];
         m_ClusterMissingCounts = new int[m_NumClusters][instances.numAttributes()];
-
-        Instances[] tempI = new Instances[m_NumClusters];
-
         while (!converged) {
             emptyClusterCount = 0;
             m_Iterations++;
             converged = true;
             for (i = 0; i < instances.numInstances(); i++) {
                 Instance toCluster = instances.instance(i);
-                SPair<Integer, Double> centroidDist = clusterProcessedInstance(toCluster,
-                        m_NumClusters, m_ClusterCentroids, m_DistanceFunction);
-
-                //update the squared error
-                m_squaredErrors[centroidDist.k] += centroidDist.v * centroidDist.v;
-
-                if (centroidDist.k != clusterAssignments[i]) { //Any change from cluster to another means no convergence yet
+                int newC = clusterProcessedInstance(toCluster, true);
+                if (newC != clusterAssignments[i]) {
                     converged = false;
                 }
-                clusterAssignments[i] = centroidDist.k;
+                clusterAssignments[i] = newC;
             }
 
             // update centroids
@@ -347,9 +433,7 @@ public class OverlappingKMean extends RandomizableClusterer implements
                     // empty cluster
                     emptyClusterCount++;
                 } else {
-                    double[] evals = moveCentroid(tempI[i]);
-                    updateClusterInfoD(evals, i, tempI[i]);
-//                    moveCentroid(i, tempI[i], true);
+                    moveCentroid(i, tempI[i], true);
                 }
             }
 
@@ -408,41 +492,64 @@ public class OverlappingKMean extends RandomizableClusterer implements
         m_DistanceFunction.clean();
     }
 
-
-
-    protected static double[] moveCentroid(Instances members) {
+    /**
+     * Move the centroid to it's new coordinates. Generate the centroid
+     * coordinates based on it's members (objects assigned to the cluster of the
+     * centroid) and the distance function being used.
+     *
+     * @param centroidIndex     index of the centroid which the coordinates will be
+     *                          computed
+     * @param members           the objects that are assigned to the cluster of this
+     *                          centroid
+     * @param updateClusterInfo if the method is supposed to update the m_Cluster
+     *                          arrays
+     * @return the centroid coordinates
+     */
+    protected double[] moveCentroid(int centroidIndex, Instances members,
+                                    boolean updateClusterInfo) {
         double[] vals = new double[members.numAttributes()];
 
-        for (int attributeIndex = 0; attributeIndex < members.numAttributes(); attributeIndex++) {
+        // used only for Manhattan Distance
+        Instances sortedMembers = null;
+        int middle = 0;
+        boolean dataIsEven = false;
 
-            // in case of Euclidian distance the centroid is the mean point
-            // in both cases, if the attribute is nominal, the centroid is the mode
-            vals[attributeIndex] = members.meanOrMode(attributeIndex);
-
+        if (m_DistanceFunction instanceof ManhattanDistance) {
+            middle = (members.numInstances() - 1) / 2;
+            dataIsEven = ((members.numInstances() % 2) == 0);
+            if (m_PreserveOrder) {
+                sortedMembers = members;
+            } else {
+                sortedMembers = new Instances(members);
+            }
         }
-
-        return vals;
-    }
-
-    protected Instance updateClusterInfoD(double[] vals,
-        int centroidIndex, Instances members) {
-//        double[] vals = new double[members.numAttributes()];
-
 
         for (int j = 0; j < members.numAttributes(); j++) {
 
-            Attribute attribute = members.attribute(j);
-            AttributeStats attributeStats = members.attributeStats(j);
             // in case of Euclidian distance the centroid is the mean point
+            // in case of Manhattan distance the centroid is the median point
             // in both cases, if the attribute is nominal, the centroid is the mode
+            if (m_DistanceFunction instanceof EuclideanDistance
+                    || members.attribute(j).isNominal()) {
+                vals[j] = members.meanOrMode(j);
+            } else if (m_DistanceFunction instanceof ManhattanDistance) {
+                // singleton special case
+                if (members.numInstances() == 1) {
+                    vals[j] = members.instance(0).value(j);
+                } else {
+                    vals[j] = sortedMembers.kthSmallestValue(j, middle + 1);
+                    if (dataIsEven) {
+                        vals[j] = (vals[j] + sortedMembers.kthSmallestValue(j, middle + 2)) / 2;
+                    }
+                }
+            }
 
-                m_ClusterMissingCounts[centroidIndex][j] = attributeStats.missingCount;
-                m_ClusterNominalCounts[centroidIndex][j] = attributeStats.nominalCounts;
-
-                if (attribute.isNominal()) {
-                    int maxNominalIndex = Utils.maxIndex(m_ClusterNominalCounts[centroidIndex][j]);
-                    if (m_ClusterMissingCounts[centroidIndex][j] >
-                            m_ClusterNominalCounts[centroidIndex][j][maxNominalIndex]) {
+            if (updateClusterInfo) {
+                m_ClusterMissingCounts[centroidIndex][j] = members.attributeStats(j).missingCount;
+                m_ClusterNominalCounts[centroidIndex][j] = members.attributeStats(j).nominalCounts;
+                if (members.attribute(j).isNominal()) {
+                    if (m_ClusterMissingCounts[centroidIndex][j] > m_ClusterNominalCounts[centroidIndex][j][Utils
+                            .maxIndex(m_ClusterNominalCounts[centroidIndex][j])]) {
                         vals[j] = Instance.missingValue(); // mark mode as missing
                     }
                 } else {
@@ -451,26 +558,22 @@ public class OverlappingKMean extends RandomizableClusterer implements
                         vals[j] = Instance.missingValue(); // mark mean as missing
                     }
                 }
-
+            }
         }
-        Instance result = new Instance(1.0, vals);
-        return result;
-
-//        m_ClusterCentroids.add(new Instance(1.0, vals));
-//        return vals;
+        if (updateClusterInfo) {
+            m_ClusterCentroids.add(new Instance(1.0, vals));
+        }
+        return vals;
     }
 
     /**
      * clusters an instance that has been through the filters
      *
-     * @param instance the instance to assign a cluster to
-//     * @param updateErrors if true, update the within clusters sum of errors
+     * @param instance     the instance to assign a cluster to
+     * @param updateErrors if true, update the within clusters sum of errors
      * @return a cluster number
      */
-    private static SPair<Integer, Double> clusterProcessedInstance(Instance instance,
-                                                                   int m_NumClusters,
-                                                                   Instances m_ClusterCentroids,
-                                                                   DistanceFunction m_DistanceFunction ) {
+    private int clusterProcessedInstance(Instance instance, boolean updateErrors) {
         double minDist = Integer.MAX_VALUE;
         int bestCluster = 0;
         for (int i = 0; i < m_NumClusters; i++) {
@@ -481,14 +584,14 @@ public class OverlappingKMean extends RandomizableClusterer implements
                 bestCluster = i;
             }
         }
-//        if (updateErrors) {
-//            if (m_DistanceFunction instanceof EuclideanDistance) {
-//                // Euclidean distance to Squared Euclidean distance
-//                minDist *= minDist;
-//            }
-//            m_squaredErrors[bestCluster] += minDist;
-//        }
-        return new SPair(Integer.valueOf(bestCluster), minDist);
+        if (updateErrors) {
+            if (m_DistanceFunction instanceof EuclideanDistance) {
+                // Euclidean distance to Squared Euclidean distance
+                minDist *= minDist;
+            }
+            m_squaredErrors[bestCluster] += minDist;
+        }
+        return bestCluster;
     }
 
     /**
@@ -496,7 +599,7 @@ public class OverlappingKMean extends RandomizableClusterer implements
      *
      * @param instance the instance to be assigned to a cluster
      * @return the number of the assigned cluster as an interger if the class is
-     *         enumerated, otherwise the predicted value
+     * enumerated, otherwise the predicted value
      * @throws Exception if instance could not be classified successfully
      */
     @Override
@@ -510,11 +613,7 @@ public class OverlappingKMean extends RandomizableClusterer implements
             inst = instance;
         }
 
-        SPair<Integer, Double> result = clusterProcessedInstance(inst,
-                m_NumClusters, m_ClusterCentroids,
-                m_DistanceFunction);
-
-        return result.k;
+        return clusterProcessedInstance(inst, false);
     }
 
     /**
@@ -566,7 +665,7 @@ public class OverlappingKMean extends RandomizableClusterer implements
      * Returns the tip text for this property
      *
      * @return tip text for this property suitable for displaying in the
-     *         explorer/experimenter gui
+     * explorer/experimenter gui
      */
     public String numClustersTipText() {
         return "set number of clusters";
@@ -599,7 +698,7 @@ public class OverlappingKMean extends RandomizableClusterer implements
      * Returns the tip text for this property
      *
      * @return tip text for this property suitable for displaying in the
-     *         explorer/experimenter gui
+     * explorer/experimenter gui
      */
     public String maxIterationsTipText() {
         return "set maximum number of iterations";
@@ -631,7 +730,7 @@ public class OverlappingKMean extends RandomizableClusterer implements
      * Returns the tip text for this property
      *
      * @return tip text for this property suitable for displaying in the
-     *         explorer/experimenter gui
+     * explorer/experimenter gui
      */
     public String displayStdDevsTipText() {
         return "Display std deviations of numeric attributes "
@@ -662,7 +761,7 @@ public class OverlappingKMean extends RandomizableClusterer implements
      * Returns the tip text for this property
      *
      * @return tip text for this property suitable for displaying in the
-     *         explorer/experimenter gui
+     * explorer/experimenter gui
      */
     public String dontReplaceMissingValuesTipText() {
         return "Replace missing values globally with mean/mode.";
@@ -690,7 +789,7 @@ public class OverlappingKMean extends RandomizableClusterer implements
      * Returns the tip text for this property.
      *
      * @return tip text for this property suitable for displaying in the
-     *         explorer/experimenter gui
+     * explorer/experimenter gui
      */
     public String distanceFunctionTipText() {
         return "The distance function to use for instances comparison "
@@ -713,9 +812,10 @@ public class OverlappingKMean extends RandomizableClusterer implements
      * @throws Exception if instances cannot be processed
      */
     public void setDistanceFunction(DistanceFunction df) throws Exception {
-        if (!(df instanceof EuclideanDistance)) {
+        if (!(df instanceof EuclideanDistance)
+                && !(df instanceof ManhattanDistance)) {
             throw new Exception(
-                    "SimpleKMeans currently only supports the Euclidean and Manhattan v.");
+                    "SimpleKMeans currently only supports the Euclidean and Manhattan distances.");
         }
         m_DistanceFunction = df;
     }
@@ -724,7 +824,7 @@ public class OverlappingKMean extends RandomizableClusterer implements
      * Returns the tip text for this property
      *
      * @return tip text for this property suitable for displaying in the
-     *         explorer/experimenter gui
+     * explorer/experimenter gui
      */
     public String preserveInstancesOrderTipText() {
         return "Preserve order of instances.";
@@ -751,48 +851,48 @@ public class OverlappingKMean extends RandomizableClusterer implements
     /**
      * Parses a given list of options.
      * <p/>
-     *
+     * <p>
      * <!-- options-start --> Valid options are:
      * <p/>
-     *
+     * <p>
      * <pre>
      * -N &lt;num&gt;
      *  number of clusters.
      *  (default 2).
      * </pre>
-     *
+     * <p>
      * <pre>
      * -V
      *  Display std. deviations for centroids.
      * </pre>
-     *
+     * <p>
      * <pre>
      * -M
      *  Replace missing values with mean/mode.
      * </pre>
-     *
+     * <p>
      * <pre>
      * -S &lt;num&gt;
      *  Random number seed.
      *  (default 10)
      * </pre>
-     *
+     * <p>
      * <pre>
      * -A &lt;classname and options&gt;
      *  Distance function to be used for instance comparison
      *  (default weka.core.EuclidianDistance)
      * </pre>
-     *
+     * <p>
      * <pre>
      * -I &lt;num&gt;
      *  Maximum number of iterations.
      * </pre>
-     *
+     * <p>
      * <pre>
      * -O
      *  Preserve order of instances.
      * </pre>
-     *
+     * <p>
      * <!-- options-end -->
      *
      * @param options the list of options as an array of strings
@@ -993,7 +1093,7 @@ public class OverlappingKMean extends RandomizableClusterer implements
             temp.append("Within cluster sum of squared errors: "
                     + Utils.sum(m_squaredErrors));
         } else {
-            temp.append("Sum of within cluster v: "
+            temp.append("Sum of within cluster distances: "
                     + Utils.sum(m_squaredErrors));
         }
 
@@ -1262,7 +1362,7 @@ public class OverlappingKMean extends RandomizableClusterer implements
      *
      * @return Array of indexes of the centroid assigned to each instance
      * @throws Exception if order of instances wasn't preserved or no assignments
-     *           were made
+     *                   were made
      */
     public int[] getAssignments() throws Exception {
         if (!m_PreserveOrder) {
@@ -1289,10 +1389,10 @@ public class OverlappingKMean extends RandomizableClusterer implements
      * Main method for testing this class.
      *
      * @param argv should contain the following arguments:
-     *          <p>
-     *          -t training file [-N number of clusters]
+     *             <p>
+     *             -t training file [-N number of clusters]
      */
     public static void main(String[] argv) {
-        runClusterer(new SimpleKMeans(), argv);
+        runClusterer(new OverlappingKMean(), argv);
     }
 }

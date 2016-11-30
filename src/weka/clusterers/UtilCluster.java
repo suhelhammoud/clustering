@@ -10,10 +10,12 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
+import static java.util.stream.Collectors.toList;
+
 /**
  * Created by suhel on 10/7/16.
  */
-public class UtilCluster {
+public interface UtilCluster {
 
     /**
      * @param data
@@ -29,11 +31,16 @@ public class UtilCluster {
         return Ints.toArray(numericalAttrs);
     }
 
-    /**
-     * @param data
-     * @param attIndexes indexes of numerical attributed to be mapped
-     * @return list of points, each point is an int array of numerical attributes
-     */
+    public static List<double[]> mapInstancesToPoints(Instances data) {
+        int[] numericalAttIndexes = numericalAttIndexes(data);
+        return mapInstancesToPoints(data, numericalAttIndexes);
+    }
+
+        /**
+         * @param data
+         * @param attIndexes indexes of numerical attributed to be mapped
+         * @return list of points, each point is an int array of numerical attributes
+         */
     public static List<double[]> mapInstancesToPoints(Instances data, int[] attIndexes) {
         List<double[]> result = new ArrayList<>(data.numInstances());
         OUTERCONTIUE:
@@ -74,6 +81,22 @@ public class UtilCluster {
         return mapInstancesToPoints(data, attrs);
 
     }
+
+    /**
+     * Used to choose initial number of centroids out of list of points
+     *
+     * @param points
+     * @param numCentroids
+     * @return sampled points as centroids, if numCentroids required is greater than points return points
+     */
+    public static <T> List<T> sample(List<T> points, int numCentroids) {
+        // TODO add random sample capability
+        return points.stream()
+                .distinct()
+                .limit(numCentroids)
+                .collect(toList());
+    }
+
 
 
 }

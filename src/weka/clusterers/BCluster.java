@@ -1,12 +1,14 @@
 package weka.clusterers;
 
 import testing.BClusterTest;
+import weka.clusterers.BaadelDataStructures.PointCluster;
 import weka.core.Instances;
 
 import java.io.FileReader;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.IntStream;
 
 import static java.util.stream.Collectors.groupingBy;
 import static java.util.stream.Collectors.toList;
@@ -18,37 +20,22 @@ import static java.util.stream.Collectors.toList;
 public class BCluster {
 
 
-    /**
-     * Used to choose initial number of centroids out of list of points
-     *
-     * @param points
-     * @param numCentroids
-     * @return sampled points as centroids, if numCentroids required is greater than points return points
-     */
-    public static <T> List<T> sample(List<T> points, int numCentroids) {
-        return points.stream()
-                .distinct()
-                .limit(numCentroids)
-                .collect(toList());
-    }
-
-
-
-
     public static boolean equalLists(List<Point> oCentroids, List<Point> nCentroids) {
-        if(oCentroids.size() != nCentroids.size())
+        if (oCentroids.size() != nCentroids.size())
             return false;
 
         for (int i = 0; i < oCentroids.size(); i++) {
-            Point point =  oCentroids.get(i);
-            if( ! point.equals(nCentroids.get(i)))
+            Point point = oCentroids.get(i);
+            if (!point.equals(nCentroids.get(i)))
                 return false;
         }
         return true;
-    };
+    }
+
+    ;
 
     int dimensions = 4;
-    int numClusters= 3;
+    int numClusters = 3;
     int maxIteration = 10;
 
     public void buildClassifier(List<double[]> pointsArray) {
@@ -57,7 +44,7 @@ public class BCluster {
 
 //        List<double[]> pointsArray = getPointsDouble();
 
-        List<Point> centroids = sample(pointsArray, numClusters).stream()
+        List<Point> centroids = UtilCluster.sample(pointsArray, numClusters).stream()
                 .map(Point::of)
                 .collect(toList());
 
@@ -76,17 +63,40 @@ public class BCluster {
 
     }
 
+    public static <T> boolean isSame(final List<T> lst1, final List<T> lst2) {
+        if(lst1 == null || lst2 == null) return false;
+        /*System.out.println("lst1 = [" + lst1 + "], lst2 = [" + lst2 + "]");
+        if (lst1.size() != lst2.size())
+            return false;
+
+        for (int i = 0; i < lst1.size(); i++) {
+            T i1 = lst1.get(i);
+            T i2 = lst2.get(i);
+            System.out.println("i1 = " + i1 + ", i2 = " + i2);
+            boolean isEqual = i1.equals(i2);
+            System.out.println("isEqual = " + isEqual);
+            if(!isEqual)
+                return false;
+        }
+        return true;*/
+
+        return IntStream.range(0, lst1.size())
+                .allMatch(i -> lst1.get(i)
+                        .equals(lst2.get(i)));
+    }
+
+
     public static void main(String[] args) {
         System.out.println("Start");
         int dimension = 4;
         int numClusters = 3;
 
-        PointFactory pointFactory = new PointFactory(dimension);
+//        PointFactory pointFactory = new PointFactory(dimension);
         PointCollector pointCollector = new PointCollector(dimension);
 
         List<double[]> pointsArray = BClusterTest.getPointsDouble();
 
-        List<Point> centroids = sample(pointsArray, numClusters).stream()
+        List<Point> centroids = UtilCluster.sample(pointsArray, numClusters).stream()
                 .map(Point::of)
                 .collect(toList());
         //point.v[]  ~ distatnces[]
@@ -103,6 +113,10 @@ public class BCluster {
                 .forEach(System.out::println);
 
 
+    }
+
+    public static int whichClusterKMean(double[] distances) {
+        return Point.minIndex(distances);
     }
 
 

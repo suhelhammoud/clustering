@@ -1,10 +1,11 @@
 package weka.clusterers;
 
 import com.google.common.base.MoreObjects;
+import weka.clusterers.BaadelDataStructures.PointCluster;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.Objects;
+import java.util.function.BiFunction;
 
 /**
  * Created by suhel on 11/16/16.
@@ -16,6 +17,12 @@ public class Point {
     public static Point of(double... v) {
         return new Point(v, 1.0);
 
+    }
+
+    public static Point of(PointCluster pointCluster) {
+        Point result = new Point(pointCluster.k, 1.0);
+        result.setClusterIndex(minIndex(pointCluster.v));
+        return result;
     }
 //    public static Point of(double[] v) {
 //        return new Point(v, 1.0);
@@ -47,31 +54,47 @@ public class Point {
         return result;
     }
 
-    public static double distanceSquared(double[] a, double[] b) {
+    public static double mDistance(double[] a, double[] b) {
+        assert a.length == b.length;
+        double result = 0;
+        for (int i = 0; i < a.length; i++) {
+            double diff = Math.abs(a[i] - b[i]);
+            result += diff;
+        }
+        return result;
+    }
+
+    public static double eDistanceSquared(double[] a, double[] b) {
         assert a.length == b.length;
         double result = 0;
         for (int i = 0; i < a.length; i++) {
             double diff = a[i] - b[i];
             result += diff * diff;
         }
-
         return result;
     }
 
+    public static double[] distances(double[] dPoint,
+                                     List<double[]> dCentroids,
+                                     BiFunction<double[], double[], Double> distanceF) {
+        return dCentroids.stream()
+                .mapToDouble(e -> distanceF.apply(dPoint, e))
+                .toArray();
+    }
 
-    public static double distanceSquared(Point p1, Point p2) {
-        return distanceSquared(p1.v, p2.v);
+    public static double eDistanceSquared(Point p1, Point p2) {
+        return eDistanceSquared(p1.v, p2.v);
     }
 
 
     public static double[] distancesSquared(List<Point> centroids, double[] xyz) {
-        return centroids.stream().mapToDouble(e -> distanceSquared(e.v, xyz))
+        return centroids.stream().mapToDouble(e -> eDistanceSquared(e.v, xyz))
                 .toArray();
     }
 
     public static double[] distancesSquared(List<Point> centroids, Point point) {
         return centroids.stream()
-                .mapToDouble(e -> distanceSquared(e, point))
+                .mapToDouble(e -> eDistanceSquared(e, point))
                 .toArray();
     }
 
