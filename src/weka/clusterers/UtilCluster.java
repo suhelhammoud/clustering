@@ -47,11 +47,11 @@ public interface UtilCluster {
         for (int i = 0; i < data.numInstances(); i++) {
             Instance instance = data.instance(i);
             double[] point = new double[attIndexes.length];
-            for (int j = 0; j < attIndexes.length; j++) {
+            for (int attIndex : attIndexes) {
                 //TODO use different policy to deal with missing data
                 //skip this instance if any of its attributes were missing
-                if (instance.isMissing(j)) continue OUTERCONTIUE;
-                point[j] = instance.value(j);
+                if (instance.isMissing(attIndex)) continue OUTERCONTIUE;
+                point[attIndex] = instance.value(attIndex);
             }
             result.add(point);
         }

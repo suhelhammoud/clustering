@@ -255,6 +255,7 @@ public class OverlappingKMean extends RandomizableClusterer implements
         //TODO change cluster Assignments representation
         List<Integer> clusterAssignments = null; //numInstances
 
+        /* Distance function, now either euclidean or manhattan*/
         BiFunction<double[], double[], Double> distanceFun = Point::eDistanceSquared;
 
         int iteration = 0;
@@ -262,14 +263,14 @@ public class OverlappingKMean extends RandomizableClusterer implements
         //TODO set distance function
         while (! isConverged) {
             iteration++;
-            //covererd is true
-            List<double[]> finalDClusterCentroid = dClusterCentroid;
+            //covered is true
+            List<double[]> tmpDClusterCentroid = dClusterCentroid;
             List<PointCluster> dPointClusters = dPoints.stream()
                     .map(dPoint -> PointCluster.of(dPoint,
-                            Point.distances(dPoint, finalDClusterCentroid, distanceFun)))
+                            Point.distances(dPoint, tmpDClusterCentroid, distanceFun)))
                     .collect(Collectors.toList());
 
-            //inject Saaid's new modification here
+            //inject Said new modification here
 
             //assigned clusters
             List<Integer> newClusterAssignments = dPointClusters.stream()
@@ -595,6 +596,20 @@ public class OverlappingKMean extends RandomizableClusterer implements
     }
 
     /**
+     * If any missing data return empty double[]
+     * @param instance
+     * @return
+     */
+    private double[] mapInstance(Instance instance) {
+        int[] numericAttributes = UtilCluster.numericalAttIndexes(instance.dataset());
+        double[] result = new double[numericAttributes.length];
+        for( int attIndex: numericAttributes){
+            if( instance.isMissing(attIndex)) return new double[0];
+            result[attIndex] = instance.value(attIndex);
+        }
+        return result;
+    }
+    /**
      * Classifies a given instance.
      *
      * @param instance the instance to be assigned to a cluster
@@ -604,6 +619,7 @@ public class OverlappingKMean extends RandomizableClusterer implements
      */
     @Override
     public int clusterInstance(Instance instance) throws Exception {
+
         Instance inst = null;
         if (!m_dontReplaceMissing) {
             m_ReplaceMissingFilter.input(instance);

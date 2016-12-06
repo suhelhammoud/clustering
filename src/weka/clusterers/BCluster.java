@@ -1,17 +1,7 @@
 package weka.clusterers;
 
-import testing.BClusterTest;
-import weka.clusterers.BaadelDataStructures.PointCluster;
-import weka.core.Instances;
-
-import java.io.FileReader;
-import java.io.IOException;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.IntStream;
-
-import static java.util.stream.Collectors.groupingBy;
-import static java.util.stream.Collectors.toList;
 
 /**
  * Created by suhel on 10/7/16.
@@ -38,30 +28,30 @@ public class BCluster {
     int numClusters = 3;
     int maxIteration = 10;
 
-    public void buildClassifier(List<double[]> pointsArray) {
-        PointFactory pointFactory = new PointFactory(dimensions);
-        PointCollector pointCollector = new PointCollector(dimensions);
-
-//        List<double[]> pointsArray = getPointsDouble();
-
-        List<Point> centroids = UtilCluster.sample(pointsArray, numClusters).stream()
-                .map(Point::of)
-                .collect(toList());
-
-        //point.v[]  distatnces[]
-        List<PairArray> xyzDistances = pointsArray.stream()
-                .map(e -> PairArray.of(e, Point.distancesSquared(centroids, e)))
-                .collect(toList());
-
-
-        Map<Integer, Point> newCentoids = xyzDistances.stream()
-                .map(Point::of) // clusterIndex => Point
-                .collect(groupingBy(Point::getClusterIndex, pointCollector));
-
-        newCentoids.entrySet().stream()
-                .forEach(System.out::println);
-
-    }
+//    public void buildClassifier(List<double[]> pointsArray) {
+//        PointFactory pointFactory = new PointFactory(dimensions);
+//        PointCollector pointCollector = new PointCollector(dimensions);
+//
+////        List<double[]> pointsArray = getPointsDouble();
+//
+//        List<Point> centroids = UtilCluster.sample(pointsArray, numClusters).stream()
+//                .map(Point::of)
+//                .collect(toList());
+//
+//        //point.v[]  distatnces[]
+//        List<PairArray> xyzDistances = pointsArray.stream()
+//                .map(e -> PairArray.of(e, Point.distancesSquared(centroids, e)))
+//                .collect(toList());
+//
+//
+//        Map<Integer, Point> newCentoids = xyzDistances.stream()
+//                .map(Point::of) // clusterIndex => Point
+//                .collect(groupingBy(Point::getClusterIndex, pointCollector));
+//
+//        newCentoids.entrySet().stream()
+//                .forEach(System.out::println);
+//
+//    }
 
     public static <T> boolean isSame(final List<T> lst1, final List<T> lst2) {
         if(lst1 == null || lst2 == null) return false;
@@ -90,34 +80,35 @@ public class BCluster {
         System.out.println("Start");
         int dimension = 4;
         int numClusters = 3;
-
-//        PointFactory pointFactory = new PointFactory(dimension);
-        PointCollector pointCollector = new PointCollector(dimension);
-
-        List<double[]> pointsArray = BClusterTest.getPointsDouble();
-
-        List<Point> centroids = UtilCluster.sample(pointsArray, numClusters).stream()
-                .map(Point::of)
-                .collect(toList());
-        //point.v[]  ~ distatnces[]
-        List<PairArray> xyzDistances = pointsArray.stream()
-                .map(e -> PairArray.of(e, Point.distancesSquared(centroids, e)))
-                .collect(toList());
-
-
-        Map<Integer, Point> newCentoids = xyzDistances.stream()
-                .map(Point::of) // clusterIndex => Point
-                .collect(groupingBy(Point::getClusterIndex, pointCollector));
-
-        newCentoids.entrySet().stream()
-                .forEach(System.out::println);
-
+//
+////        PointFactory pointFactory = new PointFactory(dimension);
+//        PointCollector pointCollector = new PointCollector(dimension);
+//
+//        List<double[]> pointsArray = BClusterTest.getPointsDouble();
+//
+//        List<Point> centroids = UtilCluster.sample(pointsArray, numClusters).stream()
+//                .map(Point::of)
+//                .collect(toList());
+//        //point.v[]  ~ distatnces[]
+//        List<PairArray> xyzDistances = pointsArray.stream()
+//                .map(e -> PairArray.of(e, Point.distancesSquared(centroids, e)))
+//                .collect(toList());
+//
+//
+//        Map<Integer, Point> newCentoids = xyzDistances.stream()
+//                .map(Point::of) // clusterIndex => Point
+//                .collect(groupingBy(Point::getClusterIndex, pointCollector));
+//
+//        newCentoids.entrySet().stream()
+//                .forEach(System.out::println);
+//
 
     }
 
     public static int whichClusterKMean(double[] distances) {
         return Point.minIndex(distances);
     }
+
 
 
 }
