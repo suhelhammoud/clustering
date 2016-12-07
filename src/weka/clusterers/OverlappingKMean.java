@@ -265,10 +265,14 @@ public class OverlappingKMean extends RandomizableClusterer implements
             iteration++;
             //covered is true
             List<double[]> tmpDClusterCentroid = dClusterCentroid;
+
+            // <v[], c[]>
             List<PointCluster> dPointClusters = dPoints.stream()
                     .map(dPoint -> PointCluster.of(dPoint,
                             Point.distances(dPoint, tmpDClusterCentroid, distanceFun)))
                     .collect(Collectors.toList());
+
+
 
             //inject Said new modification here
 
@@ -276,6 +280,7 @@ public class OverlappingKMean extends RandomizableClusterer implements
             List<Integer> newClusterAssignments = dPointClusters.stream()
                     .map(e -> BCluster.whichClusterKMean(e.v))
                     .collect(Collectors.toList());
+
 
             //find (update) new centroids
             clusterCentroids = dPointClusters.stream()
@@ -286,6 +291,11 @@ public class OverlappingKMean extends RandomizableClusterer implements
                     .sorted(Comparator.comparingInt(Point::getClusterIndex))
                     .map(e -> e.getV())
                     .collect(Collectors.toList());
+
+            //calc the mean  distances in each cluster
+            clusterCentroids = dPointClusters.stream()
+                    .map(Point::ofDist) // clusterIndex => Point
+                    .collect(groupingBy(Point::getClusterIndex, pointCollector));
 
 
             isConverged = iteration >= m_MaxIterations

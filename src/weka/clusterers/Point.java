@@ -35,6 +35,13 @@ public class Point {
         result.setClusterIndex(minIndex(pointCluster.v));
         return result;
     }
+    public static Point ofDist(PointCluster pointCluster) {
+        Point result = new Point(pointCluster.v, 1.0);
+        result.setClusterIndex(minIndex(pointCluster.v));
+        return result;
+    }
+
+
 
     public Point clone() {
         return new Point(Arrays.copyOf(v, v.length), weight);
