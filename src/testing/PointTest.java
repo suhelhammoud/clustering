@@ -1,10 +1,17 @@
 package testing;
 
 import org.junit.Test;
+import weka.clusterers.OverlappingKMean;
 import weka.clusterers.Point;
+import weka.clusterers.UtilCluster;
+import weka.core.EuclideanDistance;
+import weka.core.Instance;
+import weka.core.Instances;
 
+import java.io.FileReader;
 import java.lang.reflect.Array;
 import java.util.Arrays;
+import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -13,6 +20,44 @@ import static org.junit.Assert.assertTrue;
  * Created by suhel on 11/25/16.
  */
 public class PointTest {
+    @Test
+    public void sumDPoints() throws Exception {
+        List<double[]> points = Arrays.asList(new double[]{1, 2},
+                new double[]{1, 2},
+                new double[]{1, 2},
+                new double[]{1, 2});
+
+        double[] sum = Point.sumDPoints(points, 2);
+        assertTrue(Arrays.equals(new double[]{4,8}, sum  ));
+
+    }
+
+    @Test
+    public void eDistanceSquared() throws Exception {
+        Instances data = new Instances(new FileReader("data/iris.arff"));
+        Instance inst0 = data.instance(0);
+        Instance inst1 = data.instance(1);
+
+        EuclideanDistance ed = new EuclideanDistance();
+        ed.setDontNormalize(true);
+        ed.setInstances(data);
+        double d1 = ed.distance(inst0, inst1);
+        double d2 = Point.eDistanceSquared(mapInstance(inst0), mapInstance(inst1));
+        System.out.println(String.format("simpleKMean: %4.4f, Point.distanceSqurared: %4.4f", d1, d2));
+        assertEquals(d2, d1, 1e-5);
+
+    }
+
+    private static double[] mapInstance(Instance instance) {
+        int[] numericAttributes = UtilCluster.numericalAttIndexes(instance.dataset());
+        double[] result = new double[numericAttributes.length];
+        for (int attIndex : numericAttributes) {
+            if (instance.isMissing(attIndex)) return new double[0];
+            result[attIndex] = instance.value(attIndex);
+        }
+        return result;
+    }
+
     @Test
     public void hashCodeTest() throws Exception {
         Point p1 = Point.of(2, 3, 5);

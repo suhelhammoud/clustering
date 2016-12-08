@@ -14,7 +14,7 @@ class PointFactory implements Supplier<Point> {
 
     @Override
     public Point get() {
-        System.out.println("PointFactory.get");
+//        System.out.println("PointFactory.get");
         return new Point(new double[dimension], 0.0);
     }
 }

@@ -1,6 +1,5 @@
 package weka.clusterers;
 
-import com.google.common.primitives.Ints;
 import weka.core.Instance;
 import weka.core.Instances;
 
@@ -9,6 +8,7 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.IntStream;
 
 import static java.util.stream.Collectors.toList;
 
@@ -23,12 +23,9 @@ public interface UtilCluster {
      */
     public static int[] numericalAttIndexes(Instances data) {
         List<Integer> numericalAttrs = new ArrayList<>(data.numAttributes());
-        for (int i = 0; i < data.numAttributes(); i++) {
-            if (data.attribute(i).isNumeric()) {
-                numericalAttrs.add(i);
-            }
-        }
-        return Ints.toArray(numericalAttrs);
+        return IntStream.range(0, data.numAttributes())
+                .filter( i -> data.attribute(i).isNumeric())
+                .toArray();
     }
 
     public static List<double[]> mapInstancesToPoints(Instances data) {

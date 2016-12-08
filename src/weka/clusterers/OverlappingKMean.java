@@ -21,73 +21,22 @@
  */
 package weka.clusterers;
 
-import weka.classifiers.rules.DecisionTableHashKey;
-import weka.clusterers.BaadelDataStructures.PointCluster;
+import weka.clusterers.BaadelDataStructures.PointDistance;
 import weka.core.*;
 import weka.core.Capabilities.Capability;
-import weka.filters.Filter;
 import weka.filters.unsupervised.attribute.ReplaceMissingValues;
 
 import java.util.*;
 import java.util.function.BiFunction;
+import java.util.function.BinaryOperator;
 import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
 
 import static java.util.stream.Collectors.*;
 
 /**
- * <!-- globalinfo-start --> Cluster data using the k means algorithm
- * <p/>
- * <!-- globalinfo-end -->
- * <p>
- * <!-- options-start --> Valid options are:
- * <p/>
- * <p>
- * <pre>
- * -N &lt;num&gt;
- *  number of clusters.
- *  (default 2).
- * </pre>
- * <p>
- * <pre>
- * -V
- *  Display std. deviations for centroids.
- * </pre>
- * <p>
- * <pre>
- * -M
- *  Replace missing values with mean/mode.
- * </pre>
- * <p>
- * <pre>
- * -S &lt;num&gt;
- *  Random number seed.
- *  (default 10)
- * </pre>
- * <p>
- * <pre>
- * -A &lt;classname and options&gt;
- *  Distance function to be used for instance comparison
- *  (default weka.core.EuclidianDistance)
- * </pre>
- * <p>
- * <pre>
- * -I &lt;num&gt;
- *  Maximum number of iterations.
- * </pre>
- * <p>
- * <pre>
- * -O
- *  Preserve order of instances.
- * </pre>
- * <p>
- * <p>
- * <!-- options-end -->
- *
- * @author Mark Hall (mhall@cs.waikato.ac.nz)
- * @author Eibe Frank (eibe@cs.waikato.ac.nz)
- * @version $Revision: 10537 $
- * @see RandomizableClusterer
+ * @author
+ * @author
+ * @see
  */
 public class OverlappingKMean extends RandomizableClusterer implements
         NumberOfClustersRequestable, WeightedInstancesHandler, UtilCluster {
@@ -95,7 +44,7 @@ public class OverlappingKMean extends RandomizableClusterer implements
     /**
      * for serialization
      */
-    static final long serialVersionUID = -3235809600124455376L;
+    static final long serialVersionUID = -3235808600124455376L;
 
     /**
      * replace missing values in training instances
@@ -111,6 +60,13 @@ public class OverlappingKMean extends RandomizableClusterer implements
      * holds the cluster centroids
      */
     private Instances m_ClusterCentroids;
+
+    private List<double[]> m_dCentroids;
+
+    private int[] numericalAttributes;
+
+    private Instances data0 = null;
+//    private List<Point> m_centroids;
 
     /**
      * Holds the standard deviations of the numeric attributes in each cluster
@@ -170,6 +126,9 @@ public class OverlappingKMean extends RandomizableClusterer implements
      */
     protected DistanceFunction m_DistanceFunction = new EuclideanDistance();
 
+    /* Distance function, now either euclidean or manhattan*/
+//    BiFunction<double[], double[], Double> m_distanceFun = Point::eDistanceSquared;
+
     /**
      * Preserve order of instances
      */
@@ -197,7 +156,7 @@ public class OverlappingKMean extends RandomizableClusterer implements
      * explorer/experimenter gui
      */
     public String globalInfo() {
-        return "Cluster data using the k means algorithm. Can use either "
+        return "Cluster data using the p means algorithm. Can use either "
                 + "the Euclidean distance (default) or the Manhattan distance."
                 + " If the Manhattan distance is used, then centroids are computed "
                 + "as the component-wise median rather than mean.";
@@ -222,9 +181,162 @@ public class OverlappingKMean extends RandomizableClusterer implements
         return result;
     }
 
-    boolean isConverged() {
+
+    static double[] calcSquraredError(List<double[]> dPoints,
+                                      List<double[]> centroids,
+                                      BiFunction<double[], double[], Double> distanceFun) {
+        double[] result = new double[centroids.size()];
+        dPoints.stream()
+                .forEach(p -> {
+                    double[] distances = Point.distances(p, centroids, distanceFun);
+                    int index = Point.minIndex(distances);
+                    result[index] += distances[index];
+                });
+        return result;
+    }
+
+    private static boolean containsMissing(Instance instance) {
+        int[] numericalAttIndexes = UtilCluster.numericalAttIndexes(instance.dataset());
+        for (int index : numericalAttIndexes) {
+            if (instance.isMissing(index)) return true;
+        }
         return false;
     }
+
+    private double[] mapOneInstance(Instance instance) {
+        int[] numericalAttIndexes = UtilCluster.numericalAttIndexes(instance.dataset());
+        double[] result = new double[numericalAttIndexes.length];
+        for (int index : numericalAttIndexes) {
+            if (instance.isMissing(index)) return null;
+            result[index] = instance.value(index);
+        }
+        return result;
+    }
+
+    @Override
+    public double[] distributionForInstance(Instance instance) throws Exception {
+        //TODO optimize the code
+        if (containsMissing(instance))
+            return null;
+
+        int[] numericalAttIndexes = UtilCluster.numericalAttIndexes(instance.dataset());
+
+        double[] dPoint = mapOneInstance(instance);
+        assert dPoint != null;
+
+        return Point.distances(dPoint,
+                m_dCentroids,
+                Point::eDistanceSquared);
+    }
+
+    void simpleKMean(Instances data) throws Exception {
+        //TODO can cluster handle the data
+        //TODO replace missing data, delete or replace with mean (numeric) or with most common (nominal)
+        /* holds the header of dataset */
+        data0 = new Instances(data, 0);
+
+        numericalAttributes = UtilCluster.numericalAttIndexes(data);
+
+        List<double[]> points = UtilCluster.mapInstancesToPoints(data, numericalAttributes);
+
+        int dimension = points.get(0).length;
+
+        PointCollector pointCollector = new PointCollector(dimension);
+
+        int numClusterCentoids = m_NumClusters;
+
+        /* choose initial centroids from dataset*/
+        List<double[]> centroids = UtilCluster.sample(points, numClusterCentoids);
+//        centroids.stream().map(Point::formated).forEach(System.out::println);
+
+        /* cluster assignments*/
+        List<Integer> clusterAssignments = null;
+
+        /* update number of centroids based on the available sampled points*/
+        numClusterCentoids = centroids.size(); //update numClusterCentroids if needed
+
+        /* Distance function, now either euclidean or manhattan*/
+        BiFunction<double[], double[], Double> distanceFun = Point::eDistanceSquared;
+
+        int iteration = 0;
+        boolean isConverged = false;
+
+        while (!isConverged) {
+            iteration++;
+            List<double[]> tmpCentroids = centroids;
+
+            //calc distances to all centroids from each point
+            List<PointDistance> pointDistance = points.stream()
+                    .map(dPoint -> PointDistance.of(dPoint,
+                            Point.distances(dPoint, tmpCentroids, distanceFun)))
+                    .collect(Collectors.toList());
+
+
+            //inject Said new modification here
+
+            //choose assigned clusters to points
+            List<Integer> newClusterAssignments = pointDistance.stream()
+                    .map(e -> Point.minIndex(e.d))
+                    .collect(Collectors.toList());
+            assert newClusterAssignments.size() == points.size();
+
+
+
+            //group points in each cluster
+            Map<Integer, List<double[]>> clusters = pointDistance.stream()
+                    .collect(groupingBy(e -> Point.minIndex(e.d),
+                            mapping(e -> e.p, toList())));
+
+            //count points in each cluster
+            Map<Integer, Integer> clustersCount = clusters.entrySet().stream()
+                    .collect(toMap(Map.Entry::getKey, e -> e.getValue().size()));
+
+            //calculate new centroid in each cluster
+            Map<Integer, double[]> clustersCentroids = clusters.entrySet().stream()
+                    .collect(toMap(e -> e.getKey(),
+                            e -> Point.sumDPoints(e.getValue(), dimension) ));
+
+            //Normalize centroid
+            //TODO implement it in streams
+            for (Map.Entry<Integer, double[]> e : clustersCentroids.entrySet()) {
+                Integer centroidIndex = e.getKey();
+                int count = clustersCount.get(centroidIndex);
+                double[] pnts = e.getValue();
+                for (int i = 0; i < pnts.length; i++) {
+                    pnts[i] /= count;
+                }
+            }
+
+            //update global list of centroids
+            centroids = clustersCentroids.entrySet().stream()
+                    .sorted(Comparator.comparingInt(Map.Entry::getKey))
+                    .map(e -> e.getValue())
+                    .collect(toList());
+
+            boolean isSameAssignments = BCluster.isSame(newClusterAssignments, clusterAssignments);
+
+            isConverged = iteration >= m_MaxIterations || isSameAssignments;
+
+            clusterAssignments = newClusterAssignments;
+
+        }
+        //update square errors
+//        m_ClusterStdDevs;
+        if (m_displayStdDevs) {
+//            m_ClusterStdDevs = new Instances(instances, m_NumClusters);
+//            List<Integer> clusterCounts = clusterCentroids.values().stream()
+//                    .sorted()
+//                    .map(e -> (int) e.getWeight())
+//                    .collect(toList());
+
+            m_squaredErrors = calcSquraredError(points, centroids, distanceFun);
+        }
+
+        m_dCentroids = centroids;
+        m_Iterations = iteration;
+    }
+
+
 
     /**
      * Generates a clusterer. Has to initialize all fields of the clusterer that
@@ -235,273 +347,11 @@ public class OverlappingKMean extends RandomizableClusterer implements
      */
     @Override
     public void buildClusterer(Instances data) throws Exception {
-        //TODO can cluster handle the data
-        //TODO replace missing data, delete or replace with mean (numeric) or with most common (nominal)
-        //
-
-
-//        List<double[]> dPoints = UtilCluster.getPoints(data);
-        List<double[]> dPoints = UtilCluster.mapInstancesToPoints(data);
-
-
-        int dimension = dPoints.get(0).length;
-        PointCollector pointCollector = new PointCollector(dimension);
-
-        int numClusterCentoids = m_NumClusters;
-        List<double[]> dClusterCentroid = UtilCluster.sample(dPoints, numClusterCentoids);
-        numClusterCentoids = dClusterCentroid.size(); //update numClusterCentroids if needed
-        Map<Integer,Point> clusterCentroids = null;
-
-        //TODO change cluster Assignments representation
-        List<Integer> clusterAssignments = null; //numInstances
-
-        /* Distance function, now either euclidean or manhattan*/
-        BiFunction<double[], double[], Double> distanceFun = Point::eDistanceSquared;
-
-        int iteration = 0;
-        boolean isConverged= false;
-        //TODO set distance function
-        while (! isConverged) {
-            iteration++;
-            //covered is true
-            List<double[]> tmpDClusterCentroid = dClusterCentroid;
-
-            // <v[], c[]>
-            List<PointCluster> dPointClusters = dPoints.stream()
-                    .map(dPoint -> PointCluster.of(dPoint,
-                            Point.distances(dPoint, tmpDClusterCentroid, distanceFun)))
-                    .collect(Collectors.toList());
-
-
-
-            //inject Said new modification here
-
-            //assigned clusters
-            List<Integer> newClusterAssignments = dPointClusters.stream()
-                    .map(e -> BCluster.whichClusterKMean(e.v))
-                    .collect(Collectors.toList());
-
-
-            //find (update) new centroids
-            clusterCentroids = dPointClusters.stream()
-                    .map(Point::of) // clusterIndex => Point
-                    .collect(groupingBy(Point::getClusterIndex, pointCollector));
-
-            dClusterCentroid = clusterCentroids.values().stream()
-                    .sorted(Comparator.comparingInt(Point::getClusterIndex))
-                    .map(e -> e.getV())
-                    .collect(Collectors.toList());
-
-            //calc the mean  distances in each cluster
-            clusterCentroids = dPointClusters.stream()
-                    .map(Point::ofDist) // clusterIndex => Point
-                    .collect(groupingBy(Point::getClusterIndex, pointCollector));
-
-
-            isConverged = iteration >= m_MaxIterations
-                        || BCluster.isSame(newClusterAssignments, clusterAssignments);
-
-            List<double[]> dClusterCentroidStripped = clusterCentroids.values().stream()
-                    .filter(e -> e.getWeight() > 0)
-                    .sorted()
-                    .map(e -> e.getV())
-                    .collect(toList());
-            System.out.println("num centroids = " + dClusterCentroidStripped.size());
-
-            //find empty clusters
-
-        }
-            //update square errors
-//        m_ClusterStdDevs;
-        if (m_displayStdDevs) {
-//            m_ClusterStdDevs = new Instances(instances, m_NumClusters);
-            List<Integer> clusterCounts = clusterCentroids.values().stream()
-                    .sorted()
-                    .map(e -> (int) e.getWeight())
-                    .collect(toList());
-
-        }
+        simpleKMean(data);
 
     }
 
 
-
-    public void buildClusterer2(Instances data) throws Exception {
-
-        // can clusterer handle the data?
-        getCapabilities().testWithFail(data);
-
-        m_Iterations = 0;
-
-        m_ReplaceMissingFilter = new ReplaceMissingValues();
-        Instances instances = new Instances(data);
-
-        instances.setClassIndex(-1);
-        if (!m_dontReplaceMissing) {
-            m_ReplaceMissingFilter.setInputFormat(instances);
-            instances = Filter.useFilter(instances, m_ReplaceMissingFilter);
-        }
-
-        m_FullMissingCounts = new int[instances.numAttributes()];
-        if (m_displayStdDevs) {
-            m_FullStdDevs = new double[instances.numAttributes()];
-        }
-        m_FullNominalCounts = new int[instances.numAttributes()][0];
-
-        m_FullMeansOrMediansOrModes = moveCentroid(0, instances, false);
-        for (int i = 0; i < instances.numAttributes(); i++) {
-            m_FullMissingCounts[i] = instances.attributeStats(i).missingCount;
-            if (instances.attribute(i).isNumeric()) {
-                if (m_displayStdDevs) {
-                    m_FullStdDevs[i] = Math.sqrt(instances.variance(i));
-                }
-                if (m_FullMissingCounts[i] == instances.numInstances()) {
-                    m_FullMeansOrMediansOrModes[i] = Double.NaN; // mark missing as mean
-                }
-            } else {
-                m_FullNominalCounts[i] = instances.attributeStats(i).nominalCounts;
-                if (m_FullMissingCounts[i] > m_FullNominalCounts[i][Utils
-                        .maxIndex(m_FullNominalCounts[i])]) {
-                    m_FullMeansOrMediansOrModes[i] = -1; // mark missing as most common
-                    // value
-                }
-            }
-        }
-
-        m_ClusterCentroids = new Instances(instances, m_NumClusters);
-        int[] clusterAssignments = new int[instances.numInstances()];
-
-        if (m_PreserveOrder) {
-            m_Assignments = clusterAssignments;
-        }
-
-        m_DistanceFunction.setInstances(instances);
-
-        Random RandomO = new Random(getSeed());
-        int instIndex;
-        HashMap initC = new HashMap();
-        DecisionTableHashKey hk = null;
-
-        Instances initInstances = null;
-        if (m_PreserveOrder) {
-            initInstances = new Instances(instances);
-        } else {
-            initInstances = instances;
-        }
-
-        for (int j = initInstances.numInstances() - 1; j >= 0; j--) {
-            instIndex = RandomO.nextInt(j + 1);
-            hk = new DecisionTableHashKey(initInstances.instance(instIndex),
-                    initInstances.numAttributes(), true);
-            if (!initC.containsKey(hk)) {
-                m_ClusterCentroids.add(initInstances.instance(instIndex));
-                initC.put(hk, null);
-            }
-            initInstances.swap(j, instIndex);
-
-            if (m_ClusterCentroids.numInstances() == m_NumClusters) {
-                break;
-            }
-        }
-
-        m_NumClusters = m_ClusterCentroids.numInstances();
-
-        // removing reference
-        initInstances = null;
-
-        int i;
-        boolean converged = false;
-        int emptyClusterCount;
-
-
-        Instances[] tempI = new Instances[m_NumClusters];
-        m_squaredErrors = new double[m_NumClusters];
-        m_ClusterNominalCounts = new int[m_NumClusters][instances.numAttributes()][0];
-        m_ClusterMissingCounts = new int[m_NumClusters][instances.numAttributes()];
-        while (!converged) {
-            emptyClusterCount = 0;
-            m_Iterations++;
-            converged = true;
-            for (i = 0; i < instances.numInstances(); i++) {
-                Instance toCluster = instances.instance(i);
-                int newC = clusterProcessedInstance(toCluster, true);
-                if (newC != clusterAssignments[i]) {
-                    converged = false;
-                }
-                clusterAssignments[i] = newC;
-            }
-
-            // update centroids
-            m_ClusterCentroids = new Instances(instances, m_NumClusters);
-            for (i = 0; i < m_NumClusters; i++) {
-                tempI[i] = new Instances(instances, 0);
-            }
-            for (i = 0; i < instances.numInstances(); i++) {
-                tempI[clusterAssignments[i]].add(instances.instance(i));
-            }
-            for (i = 0; i < m_NumClusters; i++) {
-                if (tempI[i].numInstances() == 0) {
-                    // empty cluster
-                    emptyClusterCount++;
-                } else {
-                    moveCentroid(i, tempI[i], true);
-                }
-            }
-
-            if (m_Iterations == m_MaxIterations) {
-                converged = true;
-            }
-
-            if (emptyClusterCount > 0) {
-                m_NumClusters -= emptyClusterCount;
-                if (converged) {
-                    Instances[] t = new Instances[m_NumClusters];
-                    int index = 0;
-                    for (int k = 0; k < tempI.length; k++) {
-                        if (tempI[k].numInstances() > 0) {
-                            t[index] = tempI[k];
-
-                            for (i = 0; i < tempI[k].numAttributes(); i++) {
-                                m_ClusterNominalCounts[index][i] = m_ClusterNominalCounts[k][i];
-                            }
-                            index++;
-                        }
-                    }
-                    tempI = t;
-                } else {
-                    tempI = new Instances[m_NumClusters];
-                }
-            }
-
-            if (!converged) {
-                m_squaredErrors = new double[m_NumClusters];
-                m_ClusterNominalCounts = new int[m_NumClusters][instances
-                        .numAttributes()][0];
-            }
-        }
-
-        if (m_displayStdDevs) {
-            m_ClusterStdDevs = new Instances(instances, m_NumClusters);
-        }
-        m_ClusterSizes = new int[m_NumClusters];
-        for (i = 0; i < m_NumClusters; i++) {
-            if (m_displayStdDevs) {
-                double[] vals2 = new double[instances.numAttributes()];
-                for (int j = 0; j < instances.numAttributes(); j++) {
-                    if (instances.attribute(j).isNumeric()) {
-                        vals2[j] = Math.sqrt(tempI[i].variance(j));
-                    } else {
-                        vals2[j] = Instance.missingValue();
-                    }
-                }
-                m_ClusterStdDevs.add(new Instance(1.0, vals2));
-            }
-            m_ClusterSizes[i] = tempI[i].numInstances();
-        }
-
-        // Save memory!!
-        m_DistanceFunction.clean();
-    }
 
     /**
      * Move the centroid to it's new coordinates. Generate the centroid
@@ -607,18 +457,19 @@ public class OverlappingKMean extends RandomizableClusterer implements
 
     /**
      * If any missing data return empty double[]
+     *
      * @param instance
      * @return
      */
     private double[] mapInstance(Instance instance) {
-        int[] numericAttributes = UtilCluster.numericalAttIndexes(instance.dataset());
-        double[] result = new double[numericAttributes.length];
-        for( int attIndex: numericAttributes){
-            if( instance.isMissing(attIndex)) return new double[0];
+        double[] result = new double[numericalAttributes.length];
+        for (int attIndex : numericalAttributes) {
+            if (instance.isMissing(attIndex)) return new double[0];
             result[attIndex] = instance.value(attIndex);
         }
         return result;
     }
+
     /**
      * Classifies a given instance.
      *
@@ -629,17 +480,12 @@ public class OverlappingKMean extends RandomizableClusterer implements
      */
     @Override
     public int clusterInstance(Instance instance) throws Exception {
-
-        Instance inst = null;
-        if (!m_dontReplaceMissing) {
-            m_ReplaceMissingFilter.input(instance);
-            m_ReplaceMissingFilter.batchFinished();
-            inst = m_ReplaceMissingFilter.output();
-        } else {
-            inst = instance;
-        }
-
-        return clusterProcessedInstance(inst, false);
+        if (containsMissing(instance))
+            return -1;
+        double[] distances = distributionForInstance(instance);
+        if (distances == null)
+            return -1;
+        return Point.minIndex(distances);
     }
 
     /**
@@ -666,18 +512,10 @@ public class OverlappingKMean extends RandomizableClusterer implements
                 "N", 1, "-N <num>"));
         result.addElement(new Option("\tDisplay std. deviations for centroids.\n",
                 "V", 0, "-V"));
-        result.addElement(new Option(
-                "\tDon't replace missing values with mean/mode.\n", "M", 0, "-M"));
-
-        result.add(new Option("\tDistance function to use.\n"
-                + "\t(default: weka.core.EuclideanDistance)", "A", 1,
-                "-A <classname and options>"));
 
         result.add(new Option("\tMaximum number of iterations.\n", "I", 1,
                 "-I <num>"));
 
-        result.addElement(new Option("\tPreserve order of instances.\n", "O", 0,
-                "-O"));
 
         Enumeration en = super.listOptions();
         while (en.hasMoreElements()) {
@@ -875,52 +713,6 @@ public class OverlappingKMean extends RandomizableClusterer implements
     }
 
     /**
-     * Parses a given list of options.
-     * <p/>
-     * <p>
-     * <!-- options-start --> Valid options are:
-     * <p/>
-     * <p>
-     * <pre>
-     * -N &lt;num&gt;
-     *  number of clusters.
-     *  (default 2).
-     * </pre>
-     * <p>
-     * <pre>
-     * -V
-     *  Display std. deviations for centroids.
-     * </pre>
-     * <p>
-     * <pre>
-     * -M
-     *  Replace missing values with mean/mode.
-     * </pre>
-     * <p>
-     * <pre>
-     * -S &lt;num&gt;
-     *  Random number seed.
-     *  (default 10)
-     * </pre>
-     * <p>
-     * <pre>
-     * -A &lt;classname and options&gt;
-     *  Distance function to be used for instance comparison
-     *  (default weka.core.EuclidianDistance)
-     * </pre>
-     * <p>
-     * <pre>
-     * -I &lt;num&gt;
-     *  Maximum number of iterations.
-     * </pre>
-     * <p>
-     * <pre>
-     * -O
-     *  Preserve order of instances.
-     * </pre>
-     * <p>
-     * <!-- options-end -->
-     *
      * @param options the list of options as an array of strings
      * @throws Exception if an option is not supported
      */
@@ -928,7 +720,6 @@ public class OverlappingKMean extends RandomizableClusterer implements
     public void setOptions(String[] options) throws Exception {
 
         m_displayStdDevs = Utils.getFlag("V", options);
-        m_dontReplaceMissing = Utils.getFlag("M", options);
 
         String optionString = Utils.getOption('N', options);
 
@@ -940,23 +731,6 @@ public class OverlappingKMean extends RandomizableClusterer implements
         if (optionString.length() != 0) {
             setMaxIterations(Integer.parseInt(optionString));
         }
-
-        String distFunctionClass = Utils.getOption('A', options);
-        if (distFunctionClass.length() != 0) {
-            String distFunctionClassSpec[] = Utils.splitOptions(distFunctionClass);
-            if (distFunctionClassSpec.length == 0) {
-                throw new Exception("Invalid DistanceFunction specification string.");
-            }
-            String className = distFunctionClassSpec[0];
-            distFunctionClassSpec[0] = "";
-
-            setDistanceFunction((DistanceFunction) Utils.forName(
-                    DistanceFunction.class, className, distFunctionClassSpec));
-        } else {
-            setDistanceFunction(new EuclideanDistance());
-        }
-
-        m_PreserveOrder = Utils.getFlag("O", options);
 
         super.setOptions(options);
     }
@@ -978,23 +752,11 @@ public class OverlappingKMean extends RandomizableClusterer implements
             result.add("-V");
         }
 
-        if (m_dontReplaceMissing) {
-            result.add("-M");
-        }
-
         result.add("-N");
         result.add("" + getNumClusters());
 
-        result.add("-A");
-        result.add((m_DistanceFunction.getClass().getName() + " " + Utils
-                .joinOptions(m_DistanceFunction.getOptions())).trim());
-
         result.add("-I");
         result.add("" + getMaxIterations());
-
-        if (m_PreserveOrder) {
-            result.add("-O");
-        }
 
         options = super.getOptions();
         for (i = 0; i < options.length; i++) {
@@ -1004,320 +766,21 @@ public class OverlappingKMean extends RandomizableClusterer implements
         return (String[]) result.toArray(new String[result.size()]);
     }
 
-    /**
+       /**
      * return a string describing this clusterer
      *
      * @return a description of the clusterer as a string
      */
     @Override
     public String toString() {
-        if (m_ClusterCentroids == null) {
-            return "No clusterer built yet!";
-        }
+        StringJoiner result = new StringJoiner("\n");
+        result.add(String.format("Number of iterations: %d", m_Iterations));
 
-        int maxWidth = 0;
-        int maxAttWidth = 0;
-        boolean containsNumeric = false;
-        for (int i = 0; i < m_NumClusters; i++) {
-            for (int j = 0; j < m_ClusterCentroids.numAttributes(); j++) {
-                if (m_ClusterCentroids.attribute(j).name().length() > maxAttWidth) {
-                    maxAttWidth = m_ClusterCentroids.attribute(j).name().length();
-                }
-                if (m_ClusterCentroids.attribute(j).isNumeric()) {
-                    containsNumeric = true;
-                    double width = Math.log(Math.abs(m_ClusterCentroids.instance(i)
-                            .value(j))) / Math.log(10.0);
-                    // System.err.println(m_ClusterCentroids.instance(i).value(j)+" "+width);
-                    if (width < 0) {
-                        width = 1;
-                    }
-                    // decimal + # decimal places + 1
-                    width += 6.0;
-                    if ((int) width > maxWidth) {
-                        maxWidth = (int) width;
-                    }
-                }
-            }
-        }
+        String sCentroids = m_dCentroids.stream().map(e -> Point.formated(e).toString())
+                .collect(Collectors.joining("\n"));
+        result.add(sCentroids);
 
-        for (int i = 0; i < m_ClusterCentroids.numAttributes(); i++) {
-            if (m_ClusterCentroids.attribute(i).isNominal()) {
-                Attribute a = m_ClusterCentroids.attribute(i);
-                for (int j = 0; j < m_ClusterCentroids.numInstances(); j++) {
-                    String val = a.value((int) m_ClusterCentroids.instance(j).value(i));
-                    if (val.length() > maxWidth) {
-                        maxWidth = val.length();
-                    }
-                }
-                for (int j = 0; j < a.numValues(); j++) {
-                    String val = a.value(j) + " ";
-                    if (val.length() > maxAttWidth) {
-                        maxAttWidth = val.length();
-                    }
-                }
-            }
-        }
-
-        if (m_displayStdDevs) {
-            // check for maximum width of maximum frequency count
-            for (int i = 0; i < m_ClusterCentroids.numAttributes(); i++) {
-                if (m_ClusterCentroids.attribute(i).isNominal()) {
-                    int maxV = Utils.maxIndex(m_FullNominalCounts[i]);
-          /*
-           * int percent = (int)((double)m_FullNominalCounts[i][maxV] /
-           * Utils.sum(m_ClusterSizes) * 100.0);
-           */
-                    int percent = 6; // max percent width (100%)
-                    String nomV = "" + m_FullNominalCounts[i][maxV];
-                    // + " (" + percent + "%)";
-                    if (nomV.length() + percent > maxWidth) {
-                        maxWidth = nomV.length() + 1;
-                    }
-                }
-            }
-        }
-
-        // check for size of cluster sizes
-        for (int m_ClusterSize : m_ClusterSizes) {
-            String size = "(" + m_ClusterSize + ")";
-            if (size.length() > maxWidth) {
-                maxWidth = size.length();
-            }
-        }
-
-        if (m_displayStdDevs && maxAttWidth < "missing".length()) {
-            maxAttWidth = "missing".length();
-        }
-
-        String plusMinus = "+/-";
-        maxAttWidth += 2;
-        if (m_displayStdDevs && containsNumeric) {
-            maxWidth += plusMinus.length();
-        }
-        if (maxAttWidth < "Attribute".length() + 2) {
-            maxAttWidth = "Attribute".length() + 2;
-        }
-
-        if (maxWidth < "Full Data".length()) {
-            maxWidth = "Full Data".length() + 1;
-        }
-
-        if (maxWidth < "missing".length()) {
-            maxWidth = "missing".length() + 1;
-        }
-
-        StringBuffer temp = new StringBuffer();
-        // String naString = "N/A";
-
-    /*
-     * for (int i = 0; i < maxWidth+2; i++) { naString += " "; }
-     */
-        temp.append("\nkMeans\n======\n");
-        temp.append("\nNumber of iterations: " + m_Iterations + "\n");
-
-        if (m_DistanceFunction instanceof EuclideanDistance) {
-            temp.append("Within cluster sum of squared errors: "
-                    + Utils.sum(m_squaredErrors));
-        } else {
-            temp.append("Sum of within cluster distances: "
-                    + Utils.sum(m_squaredErrors));
-        }
-
-        if (!m_dontReplaceMissing) {
-            temp.append("\nMissing values globally replaced with mean/mode");
-        }
-
-        temp.append("\n\nCluster centroids:\n");
-        temp.append(pad("Cluster#", " ", (maxAttWidth + (maxWidth * 2 + 2))
-                - "Cluster#".length(), true));
-
-        temp.append("\n");
-        temp
-                .append(pad("Attribute", " ", maxAttWidth - "Attribute".length(), false));
-
-        temp
-                .append(pad("Full Data", " ", maxWidth + 1 - "Full Data".length(), true));
-
-        // cluster numbers
-        for (int i = 0; i < m_NumClusters; i++) {
-            String clustNum = "" + i;
-            temp.append(pad(clustNum, " ", maxWidth + 1 - clustNum.length(), true));
-        }
-        temp.append("\n");
-
-        // cluster sizes
-        String cSize = "(" + Utils.sum(m_ClusterSizes) + ")";
-        temp.append(pad(cSize, " ", maxAttWidth + maxWidth + 1 - cSize.length(),
-                true));
-        for (int i = 0; i < m_NumClusters; i++) {
-            cSize = "(" + m_ClusterSizes[i] + ")";
-            temp.append(pad(cSize, " ", maxWidth + 1 - cSize.length(), true));
-        }
-        temp.append("\n");
-
-        temp.append(pad("", "=",
-                maxAttWidth
-                        + (maxWidth * (m_ClusterCentroids.numInstances() + 1)
-                        + m_ClusterCentroids.numInstances() + 1), true));
-        temp.append("\n");
-
-        for (int i = 0; i < m_ClusterCentroids.numAttributes(); i++) {
-            String attName = m_ClusterCentroids.attribute(i).name();
-            temp.append(attName);
-            for (int j = 0; j < maxAttWidth - attName.length(); j++) {
-                temp.append(" ");
-            }
-
-            String strVal;
-            String valMeanMode;
-            // full data
-            if (m_ClusterCentroids.attribute(i).isNominal()) {
-                if (m_FullMeansOrMediansOrModes[i] == -1) { // missing
-                    valMeanMode = pad("missing", " ", maxWidth + 1 - "missing".length(),
-                            true);
-                } else {
-                    valMeanMode = pad(
-                            (strVal = m_ClusterCentroids.attribute(i).value(
-                                    (int) m_FullMeansOrMediansOrModes[i])), " ", maxWidth + 1
-                                    - strVal.length(), true);
-                }
-            } else {
-                if (Double.isNaN(m_FullMeansOrMediansOrModes[i])) {
-                    valMeanMode = pad("missing", " ", maxWidth + 1 - "missing".length(),
-                            true);
-                } else {
-                    valMeanMode = pad(
-                            (strVal = Utils.doubleToString(m_FullMeansOrMediansOrModes[i],
-                                    maxWidth, 4).trim()), " ", maxWidth + 1 - strVal.length(), true);
-                }
-            }
-            temp.append(valMeanMode);
-
-            for (int j = 0; j < m_NumClusters; j++) {
-                if (m_ClusterCentroids.attribute(i).isNominal()) {
-                    if (m_ClusterCentroids.instance(j).isMissing(i)) {
-                        valMeanMode = pad("missing", " ",
-                                maxWidth + 1 - "missing".length(), true);
-                    } else {
-                        valMeanMode = pad(
-                                (strVal = m_ClusterCentroids.attribute(i).value(
-                                        (int) m_ClusterCentroids.instance(j).value(i))), " ", maxWidth
-                                        + 1 - strVal.length(), true);
-                    }
-                } else {
-                    if (m_ClusterCentroids.instance(j).isMissing(i)) {
-                        valMeanMode = pad("missing", " ",
-                                maxWidth + 1 - "missing".length(), true);
-                    } else {
-                        valMeanMode = pad(
-                                (strVal = Utils.doubleToString(
-                                        m_ClusterCentroids.instance(j).value(i), maxWidth, 4).trim()),
-                                " ", maxWidth + 1 - strVal.length(), true);
-                    }
-                }
-                temp.append(valMeanMode);
-            }
-            temp.append("\n");
-
-            if (m_displayStdDevs) {
-                // Std devs/max nominal
-                String stdDevVal = "";
-
-                if (m_ClusterCentroids.attribute(i).isNominal()) {
-                    // Do the values of the nominal attribute
-                    Attribute a = m_ClusterCentroids.attribute(i);
-                    for (int j = 0; j < a.numValues(); j++) {
-                        // full data
-                        String val = "  " + a.value(j);
-                        temp.append(pad(val, " ", maxAttWidth + 1 - val.length(), false));
-                        int count = m_FullNominalCounts[i][j];
-                        int percent = (int) ((double) m_FullNominalCounts[i][j]
-                                / Utils.sum(m_ClusterSizes) * 100.0);
-                        String percentS = "" + percent + "%)";
-                        percentS = pad(percentS, " ", 5 - percentS.length(), true);
-                        stdDevVal = "" + count + " (" + percentS;
-                        stdDevVal = pad(stdDevVal, " ", maxWidth + 1 - stdDevVal.length(),
-                                true);
-                        temp.append(stdDevVal);
-
-                        // Clusters
-                        for (int k = 0; k < m_NumClusters; k++) {
-                            count = m_ClusterNominalCounts[k][i][j];
-                            percent = (int) ((double) m_ClusterNominalCounts[k][i][j]
-                                    / m_ClusterSizes[k] * 100.0);
-                            percentS = "" + percent + "%)";
-                            percentS = pad(percentS, " ", 5 - percentS.length(), true);
-                            stdDevVal = "" + count + " (" + percentS;
-                            stdDevVal = pad(stdDevVal, " ",
-                                    maxWidth + 1 - stdDevVal.length(), true);
-                            temp.append(stdDevVal);
-                        }
-                        temp.append("\n");
-                    }
-                    // missing (if any)
-                    if (m_FullMissingCounts[i] > 0) {
-                        // Full data
-                        temp.append(pad("  missing", " ",
-                                maxAttWidth + 1 - "  missing".length(), false));
-                        int count = m_FullMissingCounts[i];
-                        int percent = (int) ((double) m_FullMissingCounts[i]
-                                / Utils.sum(m_ClusterSizes) * 100.0);
-                        String percentS = "" + percent + "%)";
-                        percentS = pad(percentS, " ", 5 - percentS.length(), true);
-                        stdDevVal = "" + count + " (" + percentS;
-                        stdDevVal = pad(stdDevVal, " ", maxWidth + 1 - stdDevVal.length(),
-                                true);
-                        temp.append(stdDevVal);
-
-                        // Clusters
-                        for (int k = 0; k < m_NumClusters; k++) {
-                            count = m_ClusterMissingCounts[k][i];
-                            percent = (int) ((double) m_ClusterMissingCounts[k][i]
-                                    / m_ClusterSizes[k] * 100.0);
-                            percentS = "" + percent + "%)";
-                            percentS = pad(percentS, " ", 5 - percentS.length(), true);
-                            stdDevVal = "" + count + " (" + percentS;
-                            stdDevVal = pad(stdDevVal, " ",
-                                    maxWidth + 1 - stdDevVal.length(), true);
-                            temp.append(stdDevVal);
-                        }
-
-                        temp.append("\n");
-                    }
-
-                    temp.append("\n");
-                } else {
-                    // Full data
-                    if (Double.isNaN(m_FullMeansOrMediansOrModes[i])) {
-                        stdDevVal = pad("--", " ", maxAttWidth + maxWidth + 1 - 2, true);
-                    } else {
-                        stdDevVal = pad(
-                                (strVal = plusMinus
-                                        + Utils.doubleToString(m_FullStdDevs[i], maxWidth, 4).trim()),
-                                " ", maxWidth + maxAttWidth + 1 - strVal.length(), true);
-                    }
-                    temp.append(stdDevVal);
-
-                    // Clusters
-                    for (int j = 0; j < m_NumClusters; j++) {
-                        if (m_ClusterCentroids.instance(j).isMissing(i)) {
-                            stdDevVal = pad("--", " ", maxWidth + 1 - 2, true);
-                        } else {
-                            stdDevVal = pad(
-                                    (strVal = plusMinus
-                                            + Utils.doubleToString(m_ClusterStdDevs.instance(j).value(i),
-                                            maxWidth, 4).trim()), " ", maxWidth + 1 - strVal.length(),
-                                    true);
-                        }
-                        temp.append(stdDevVal);
-                    }
-                    temp.append("\n\n");
-                }
-            }
-        }
-
-        temp.append("\n\n");
-        return temp.toString();
+        return result.toString();
     }
 
     private String pad(String source, String padChar, int length, boolean leftPad) {

@@ -38,7 +38,7 @@ public class BCluster {
 //                .map(Point::of)
 //                .collect(toList());
 //
-//        //point.v[]  distatnces[]
+//        //point.d[]  distatnces[]
 //        List<PairArray> xyzDistances = pointsArray.stream()
 //                .map(e -> PairArray.of(e, Point.distancesSquared(centroids, e)))
 //                .collect(toList());
@@ -55,20 +55,6 @@ public class BCluster {
 
     public static <T> boolean isSame(final List<T> lst1, final List<T> lst2) {
         if(lst1 == null || lst2 == null) return false;
-        /*System.out.println("lst1 = [" + lst1 + "], lst2 = [" + lst2 + "]");
-        if (lst1.size() != lst2.size())
-            return false;
-
-        for (int i = 0; i < lst1.size(); i++) {
-            T i1 = lst1.get(i);
-            T i2 = lst2.get(i);
-            System.out.println("i1 = " + i1 + ", i2 = " + i2);
-            boolean isEqual = i1.equals(i2);
-            System.out.println("isEqual = " + isEqual);
-            if(!isEqual)
-                return false;
-        }
-        return true;*/
 
         return IntStream.range(0, lst1.size())
                 .allMatch(i -> lst1.get(i)
@@ -89,7 +75,7 @@ public class BCluster {
 //        List<Point> centroids = UtilCluster.sample(pointsArray, numClusters).stream()
 //                .map(Point::of)
 //                .collect(toList());
-//        //point.v[]  ~ distatnces[]
+//        //point.d[]  ~ distatnces[]
 //        List<PairArray> xyzDistances = pointsArray.stream()
 //                .map(e -> PairArray.of(e, Point.distancesSquared(centroids, e)))
 //                .collect(toList());

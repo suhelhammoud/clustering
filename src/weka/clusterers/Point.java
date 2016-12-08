@@ -1,7 +1,8 @@
 package weka.clusterers;
 
-import weka.clusterers.BaadelDataStructures.PointCluster;
+import weka.clusterers.BaadelDataStructures.PointDistance;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.StringJoiner;
@@ -30,14 +31,14 @@ public class Point {
         return new Point(v, 1.0);
     }
 
-    public static Point of(PointCluster pointCluster) {
-        Point result = new Point(pointCluster.k, 1.0);
-        result.setClusterIndex(minIndex(pointCluster.v));
+    public static Point of(PointDistance pointDistance) {
+        Point result = new Point(pointDistance.p, 1.0);
+        result.setClusterIndex(minIndex(pointDistance.d));
         return result;
     }
-    public static Point ofDist(PointCluster pointCluster) {
-        Point result = new Point(pointCluster.v, 1.0);
-        result.setClusterIndex(minIndex(pointCluster.v));
+    public static Point ofDist(PointDistance pointDistance) {
+        Point result = new Point(pointDistance.d, 1.0);
+        result.setClusterIndex(minIndex(pointDistance.d));
         return result;
     }
 
@@ -145,11 +146,19 @@ public class Point {
         return result;
     }
 
+    public static List<String> formated(double[] dPoint) {
+        List<String> result = new ArrayList<>(dPoint.length);
+        for (double x : dPoint) {
+            result.add(String.format("%4.4f", x));
+        }
+        return result;
+    }
+
     @Override
     public String toString() {
         return new StringJoiner(", ", Point.class.toString(), "")
                 .add("w:" + weight)
-                .add("v:" + Arrays.toString(v))
+                .add("d:" + Arrays.toString(v))
                 .add("cIndex" + clusterIndex)
                 .toString();
     }
@@ -180,6 +189,20 @@ public class Point {
         }
         return result;
     }
+
+    public static double[] add(double[] a, double[] b) {
+        double[] result = new double[a.length];
+        for (int i = 0; i < a.length; i++) {
+            result[i] = a[i] + b[i];
+        }
+        return result;
+    }
+
+    public static double[] sumDPoints(List<double[]> points, int dimension) {
+        return points.stream()
+                .reduce(new double[dimension], Point::add);
+    }
+
 }
 
 

@@ -1,8 +1,8 @@
 package weka.clusterers;
 
-import com.google.common.base.MoreObjects;
 
 import java.util.Arrays;
+import java.util.StringJoiner;
 
 /**
  * Created by suhel on 11/25/16.
@@ -18,11 +18,10 @@ public class PairArray {
 
     @Override
     public String toString() {
-        return MoreObjects.toStringHelper(PairArray.class)
-                .add("k:", Arrays.toString(k))
-                .add("v:", Arrays.toString(v))
+        return new StringJoiner(",", this.getClass().getName() + "{","}")
+                .add("p:" + Arrays.toString(k))
+                .add("d:" + Arrays.toString(v))
                 .toString();
-
     }
 
     public static PairArray of(double[] k, double[] v) {

@@ -3,7 +3,7 @@
  */
 public class RunApp {
     public static void main(String[] args) {
-        weka.gui.GUIChooser.main(null);
+        weka.gui.GUIChooser.main(new String[]{"data/iris.arff"});
 
     }
 }
